@@ -1,9 +1,5 @@
 package com.vendor.jni;
 
-import static edu.wpi.first.units.Units.*;
-// import edu.wpi.first.wpilibj2.command.*;
-
-import com.vendor.jni.ExtraPathing.FallbackNextAlong;
 import com.vendor.jni.Fallback.PlannerFallback;
 import com.vendor.jni.Mechanism.Mechanism.RepulsorMechanism;
 import com.vendor.jni.Setpoints.HeightSetpoint;
@@ -38,8 +34,7 @@ public class Repulsor {
   // ==========================
   // PATHING
   // ==========================
-  private FieldPlanner m_planner =
-      new FieldPlanner().withFallbackPlan(new ExtraPathing().new FallbackNextAlong());
+  private FieldPlanner m_planner;
   private VisionPlanner m_visionPlanner = new VisionPlanner();
   private Drive m_drive;
   private UsageType m_usageType = UsageType.kAutoDrive;
@@ -69,6 +64,12 @@ public class Repulsor {
     this.robot_y = robot_y;
     this.coral_offset = coral_offset;
     this.algae_offset = algae_offset;
+
+    m_planner =
+        new FieldPlanner()
+            .withFallbackPlan(
+                new ExtraPathing()
+                .new FallbackNextAlong(robot_x, robot_y, coral_offset, algae_offset));
   }
 
   public Repulsor(
@@ -186,26 +187,12 @@ public class Repulsor {
             () -> {
               m_currentGoal = point;
               m_planner.setGoal(
-                  point
-                      .point()
-                      .getPose(robot_x, robot_y, coral_offset, algae_offset)
-                      .getTranslation());
+                  point.point().getPose(robot_x, robot_y, coral_offset, algae_offset));
               m_drive.runVelocity(
                   m_planner
                       .calculate(
                           m_drive.getPose(), m_visionPlanner.getObstacles(), robot_x, robot_y)
-                      .asChassisSpeeds(
-                          DegreesPerSecond.of(
-                              m_drive
-                                  .getOmegaPID()
-                                  .calculate(
-                                      point
-                                          .point()
-                                          .getPose(robot_x, robot_y, coral_offset, algae_offset)
-                                          .getRotation()
-                                          .getDegrees(),
-                                      m_drive.getPose().getRotation().getDegrees())),
-                          m_drive.getPose().getRotation()));
+                      .asChassisSpeeds(m_drive.getOmegaPID(), m_drive.getPose().getRotation()));
             },
             m_drive)
         .until(until);

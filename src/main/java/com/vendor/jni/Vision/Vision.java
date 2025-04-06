@@ -4,11 +4,7 @@ import edu.wpi.first.math.Pair;
 import edu.wpi.first.math.geometry.Pose2d;
 
 public interface Vision {
-  public static enum ObstacleType {
-    kCoral(0, 0),
-    kAlgae(0, 0),
-    kRobot(0.6, 0.6);
-
+  public static class ObstacleType {
     private Pair<Double, Double> size;
 
     ObstacleType(double size_x, double size_y) {

@@ -1,3 +1,5 @@
+import static edu.wpi.first.units.Units.Radians;
+
 import com.vendor.jni.*;
 import com.vendor.jni.Setpoints.HeightSetpoint;
 import com.vendor.jni.Setpoints.RepulsorSetpoint;
@@ -39,7 +41,7 @@ public class FieldPlannerSim extends PApplet {
                   }
 
                   public PIDController getOmegaPID() {
-                    return new PIDController(1, 0, 0);
+                    return new PIDController(0.1, 0, 0.01);
                   }
 
                   public void runVelocity(ChassisSpeeds speeds) {
@@ -48,9 +50,13 @@ public class FieldPlannerSim extends PApplet {
                       Translation2d delta =
                           new Translation2d(
                               speeds.vxMetersPerSecond * dt, speeds.vyMetersPerSecond * dt);
-                      robotPose =
-                          new Pose2d(
-                              robotPose.getTranslation().plus(delta), robotPose.getRotation());
+                      Rotation2d deltaRot =
+                          new Rotation2d(
+                              Radians.of(
+                                  (speeds.omegaRadiansPerSecond * dt)
+                                      + robotPose.getRotation().getRadians()));
+
+                      robotPose = new Pose2d(robotPose.getTranslation().plus(delta), deltaRot);
                     }
                   }
                 },
@@ -90,6 +96,8 @@ public class FieldPlannerSim extends PApplet {
       }
     }
 
+    planner.alignTo(goal, new Trigger(() -> false)).execute();
+
     // Handle number key goal selection
     double robotX = robotPose.getX();
     double robotY = robotPose.getY();
@@ -108,11 +116,12 @@ public class FieldPlannerSim extends PApplet {
         case '8' -> setGoal(SetpointsReefscape.H, robotX, robotY, coralOffset, algaeOffset);
         case '9' -> setGoal(SetpointsReefscape.I, robotX, robotY, coralOffset, algaeOffset);
         case '0' -> setGoal(SetpointsReefscape.J, robotX, robotY, coralOffset, algaeOffset);
+        case 'q' -> setGoal(SetpointsReefscape.K, robotX, robotY, coralOffset, algaeOffset);
+        case 'w' -> setGoal(SetpointsReefscape.L, robotX, robotY, coralOffset, algaeOffset);
       }
     }
 
     // Update repulsor
-    planner.alignTo(goal, new Trigger(() -> false)).execute();
 
     // --- Arrows ---
     fill(0);
@@ -199,7 +208,12 @@ public class FieldPlannerSim extends PApplet {
     // --- Path status ---
     boolean isClear =
         ExtraPathing.isClearPath(
-            robotTrans, goal, planner.getVisionPlanner().getObstacles(), robotLength, robotWidth);
+            robotTrans,
+            goal,
+            planner.getVisionPlanner().getObstacles(),
+            robotLength,
+            robotWidth,
+            planner.getFieldPlanner());
 
     fill(isClear ? color(0, 200, 0) : color(200, 0, 0));
     textAlign(LEFT, TOP);
@@ -227,19 +241,5 @@ public class FieldPlannerSim extends PApplet {
     if (dist(mouseX, mouseY, gx, gy) < 10) {
       draggingGoal = true;
     }
-  }
-
-  @Override
-  public void mouseDragged() {
-    if (draggingGoal) {
-      double fx = mouseX / width * com.vendor.jni.Constants.FIELD_LENGTH;
-      double fy = (height - mouseY) / height * com.vendor.jni.Constants.FIELD_WIDTH;
-      planner.getFieldPlanner().setGoal(new Translation2d(fx, fy));
-    }
-  }
-
-  @Override
-  public void mouseReleased() {
-    draggingGoal = false;
   }
 }

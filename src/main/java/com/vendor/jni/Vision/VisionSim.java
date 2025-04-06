@@ -6,7 +6,8 @@ public class VisionSim implements Vision {
   @Override
   public Obstacle[] getObstacles() {
     return new Obstacle[] {
-      new Vision.Obstacle(SetpointsReefscape.A.getPose(0, 0, 0, 0), Vision.ObstacleType.kRobot)
+      new Vision.Obstacle(
+          SetpointsReefscape.A.getPose(0, 0, 0, 0), new Vision.ObstacleType(0.5, 0.5))
     };
   }
 }
