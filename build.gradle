@@ -1,6 +1,7 @@
 import edu.wpi.first.toolchain.*
 
 plugins {
+  id 'eclipse' 
   id 'cpp'
   id 'java'
   id 'google-test'
@@ -8,6 +9,7 @@ plugins {
   id 'edu.wpi.first.NativeUtils' version '2025.9.0'
   id 'edu.wpi.first.GradleJni' version '1.1.0'
   id 'edu.wpi.first.GradleVsCode' version '2.1.0'
+  id 'com.diffplug.spotless' version '6.25.0'
 }
 
 // WPILib Version
@@ -15,6 +17,12 @@ ext.wpilibVersion = "2025.+"
 
 repositories {
   mavenCentral()
+  maven {
+    url 'https://lib.choreo.autos/dep'
+    content {
+      includeGroup 'choreo'
+    }
+  }
 }
 if (project.hasProperty('releaseMode')) {
   wpilibRepositories.addAllReleaseRepositories(project)
@@ -46,6 +54,11 @@ dependencies {
     implementation "com.fasterxml.jackson.core:jackson-core:2.15.2"
     implementation "com.fasterxml.jackson.core:jackson-databind:2.15.2"
     implementation 'edu.wpi.first.thirdparty.frc2025.opencv:opencv-java:4.10.0-2'
+    implementation "edu.wpi.first.apriltag:apriltag-java:$wpilibVersion"
+    implementation "edu.wpi.first.wpilibNewCommands:wpilibNewCommands-java:$wpilibVersion"
+    implementation 'choreo:ChoreoLib-java:2025.0.3'
+    implementation 'org.processing:core:3.3.7'
+    implementation 'us.hebi.quickbuf:quickbuf-runtime:1.4'
 
     testImplementation 'org.junit.jupiter:junit-jupiter:5.10.1'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
@@ -115,7 +128,7 @@ model {
       binaries.all {
         lib library: 'VendorDriver', linkage: 'shared'
       }
-      nativeUtils.useRequiredLibrary(it, 'wpilib_shared')
+      nativeUtils.useRequiredLibrary(it, 'wpilib_shared', 'hal_shared')
     }
 
     VendorDriver(JniNativeLibrarySpec) {
@@ -137,7 +150,7 @@ model {
         }
       }
 
-      nativeUtils.useRequiredLibrary(it, "driver_shared")
+      nativeUtils.useRequiredLibrary(it, "driver_shared", "wpilib_shared", "hal_shared")
     }
   }
   testSuites {
@@ -162,7 +175,7 @@ model {
           }
         }
 
-        nativeUtils.useRequiredLibrary(it, "wpilib_executable_shared", "googletest_static")
+      nativeUtils.useRequiredLibrary(it, "wpilib_executable_shared", "googletest_static")
     }
 
     VendorDriverTest {
@@ -182,3 +195,35 @@ apply from: 'publish.gradle'
 wrapper {
   gradleVersion '8.11'
 }
+
+spotless {
+    java {
+        googleJavaFormat('1.17.0') // Uses the Google Java Style
+        target 'src/**/*.java'
+    }
+}
+
+tasks.named("build") {
+    dependsOn "spotlessApply"
+}
+
+sourceSets {
+    sim {
+        java.srcDir 'src/sim/java'
+        compileClasspath += sourceSets.main.output + configurations.compileClasspath
+        runtimeClasspath += output + compileClasspath
+    }
+}
+tasks.register('runSim', JavaExec) {
+  dependsOn "spotlessApply"
+    group = 'simulation'
+    description = 'Run the FieldPlanner simulation visualizer'
+    classpath = sourceSets.sim.runtimeClasspath
+    mainClass = 'FieldPlannerSim'
+
+    // Point to the JNI native libs directory
+    def nativeLibDir = file("build/install/vendorDriverTest/linuxx86-64/release/lib").absolutePath
+    environment "LD_LIBRARY_PATH", nativeLibDir
+    systemProperty "java.library.path", nativeLibDir
+}
+

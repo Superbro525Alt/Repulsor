@@ -2,20 +2,17 @@ package com.vendor.jni;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/**
- * Demo class for loading the driver via JNI.
- */
+/** Demo class for loading the driver via JNI. */
 public class VendorJNI {
   static boolean libraryLoaded = false;
 
-  /**
-   * Helper class for determining whether or not to load the driver on static initialization.
-   */
+  /** Helper class for determining whether or not to load the driver on static initialization. */
   public static class Helper {
     private static AtomicBoolean extractOnStaticLoad = new AtomicBoolean(true);
 
     /**
      * Get whether to load the driver on static init.
+     *
      * @return true if the driver will load on static init
      */
     public static boolean getExtractOnStaticLoad() {
@@ -24,6 +21,7 @@ public class VendorJNI {
 
     /**
      * Set whether to load the driver on static init.
+     *
      * @param load the new value
      */
     public static void setExtractOnStaticLoad(boolean load) {
@@ -38,9 +36,7 @@ public class VendorJNI {
     }
   }
 
-  /**
-   * Force load the library.
-   */
+  /** Force load the library. */
   public static synchronized void forceLoad() {
     if (libraryLoaded) {
       return;
@@ -50,9 +46,8 @@ public class VendorJNI {
   }
 
   /**
-   * Tells the driver to initialize.
-   * This is a demo of a native JNI method from the driver.
-   * 
+   * Tells the driver to initialize. This is a demo of a native JNI method from the driver.
+   *
    * @return the int returned by the driver
    * @see "VendorJNI.cpp"
    */
