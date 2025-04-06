@@ -27,6 +27,8 @@ public class ExtraPathing {
     int maxSteps = 150;
     double stepTime = 0.02;
 
+    repulsor.suppressIsClearPath = true;
+
     for (int i = 0; i < maxSteps; i++) {
       FieldPlanner.RepulsorSample sample =
           repulsor.calculate(pose, obstacles, robotLengthMeters, robotWidthMeters);
@@ -61,15 +63,18 @@ public class ExtraPathing {
 
       for (FieldPlanner.Obstacle obs : obstacles) {
         if (obs.intersectsRectangle(corners)) {
+          repulsor.suppressIsClearPath = false;
           return false;
         }
       }
 
       if (nextPos.getDistance(goal) < 0.1) {
+        repulsor.suppressIsClearPath = false;
         return true;
       }
     }
 
+    repulsor.suppressIsClearPath = false;
     return false;
   }
 

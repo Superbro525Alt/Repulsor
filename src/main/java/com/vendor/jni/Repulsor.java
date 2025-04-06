@@ -15,6 +15,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Supplier;
 
 public class Repulsor {
 
@@ -180,6 +181,22 @@ public class Repulsor {
                     c.getTrigger().onTrue(c.getCommand());
                   });
         });
+  }
+
+  public Command alignTo(Supplier<RepulsorSetpoint> point, Trigger until) {
+    return Commands.run(
+            () -> {
+              m_currentGoal = point.get();
+              m_planner.setGoal(
+                  point.get().point().getPose(robot_x, robot_y, coral_offset, algae_offset));
+              m_drive.runVelocity(
+                  m_planner
+                      .calculate(
+                          m_drive.getPose(), m_visionPlanner.getObstacles(), robot_x, robot_y)
+                      .asChassisSpeeds(m_drive.getOmegaPID(), m_drive.getPose().getRotation()));
+            },
+            m_drive)
+        .until(until);
   }
 
   public Command alignTo(RepulsorSetpoint point, Trigger until) {

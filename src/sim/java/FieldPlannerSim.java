@@ -31,6 +31,10 @@ public class FieldPlannerSim extends PApplet {
     size(900, 450);
   }
 
+  public RepulsorSetpoint getGoal() {
+    return goal;
+  }
+
   @Override
   public void setup() {
     planner =
@@ -71,6 +75,7 @@ public class FieldPlannerSim extends PApplet {
   @Override
   public void draw() {
     background(255);
+    planner.alignTo(() -> getGoal(), new Trigger(() -> false)).execute();
     float scaleX = width / (float) com.vendor.jni.Constants.FIELD_LENGTH;
     float scaleY = height / (float) com.vendor.jni.Constants.FIELD_WIDTH;
 
@@ -95,8 +100,6 @@ public class FieldPlannerSim extends PApplet {
         robotPose = new Pose2d(updated, robotPose.getRotation());
       }
     }
-
-    planner.alignTo(goal, new Trigger(() -> false)).execute();
 
     // Handle number key goal selection
     double robotX = robotPose.getX();
