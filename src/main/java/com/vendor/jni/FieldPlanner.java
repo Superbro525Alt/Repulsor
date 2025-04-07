@@ -492,86 +492,96 @@ public class FieldPlanner {
   }
 
   public RepulsorSample calculate(
-      Pose2d pose, List<? extends Obstacle> dynamicObstacles, double robot_x, double robot_y) {
+      Pose2d pose,
+      List<? extends Obstacle> dynamicObstacles,
+      double robot_x,
+      double robot_y
+      ) {
+    // System.out.println("[CALCULATE] Begin");
 
-    boolean pathBlocked =
-        !suppressIsClearPath
-            && !ExtraPathing.isClearPath(
-                pose.getTranslation(),
-                goal.getTranslation(),
-                dynamicObstacles,
-                robot_x,
-                robot_y,
-                this);
+      boolean pathBlocked =
+          !suppressIsClearPath
+              && !ExtraPathing.isClearPath(
+                  pose.getTranslation(),
+                  goal.getTranslation(),
+                  dynamicObstacles,
+                  robot_x,
+                  robot_y,
+                  this);
 
-    if (pathBlocked) {
-      long currentTime = now();
-      if (firstTimeBlockedMillis == 0) {
-        firstTimeBlockedMillis = currentTime;
-      }
+      if (pathBlocked) {
+        long currentTime = now();
+        if (firstTimeBlockedMillis == 0) {
+          firstTimeBlockedMillis = currentTime;
+        }
 
-      if (!hasGivenUp && currentTime - firstTimeBlockedMillis > 5000) {
-        hasGivenUp = true;
-        return new RepulsorSample(
-            pose.getTranslation(), 0, 0, Radians.of(pose.getRotation().getRadians()));
-      }
-
-      if (lastCommittedFallback != null
-          && now() < fallbackStickUntilMillis
-          && !suppressIsClearPath
-          && ExtraPathing.isClearPath(
-              pose.getTranslation(),
-              lastCommittedFallback.getTranslation(),
-              dynamicObstacles,
-              robot_x,
-              robot_y,
-              this)) {
-
-        setGoal(lastCommittedFallback);
-        goalListener.update(lastCommittedFallback);
-        pathBlocked = false;
-      }
-
-      if (pathBlocked && onBlocked.isPresent()) {
-        Pose2d newFallback =
-            onBlocked
-                .get()
-                .calculate(
-                    goal,
-                    pose,
-                    (Translation2d g) ->
-                        !suppressIsClearPath
-                            && ExtraPathing.isClearPath(
-                                pose.getTranslation(), g, dynamicObstacles, robot_x, robot_y, this),
-                    goalListener.isBouncing());
-
-        if (!ExtraPathing.isClearPath(
-            pose.getTranslation(),
-            newFallback.getTranslation(),
-            dynamicObstacles,
-            robot_x,
-            robot_y,
-            this)) {
+        if (!hasGivenUp && currentTime - firstTimeBlockedMillis > 5000) {
+          hasGivenUp = true;
           return new RepulsorSample(
               pose.getTranslation(), 0, 0, Radians.of(pose.getRotation().getRadians()));
         }
 
-        lastCommittedFallback = newFallback;
-        fallbackStickUntilMillis = now() + 2000;
-        setGoal(newFallback);
-        goalListener.update(newFallback);
-      }
+        if (lastCommittedFallback != null
+            && now() < fallbackStickUntilMillis
+            && !suppressIsClearPath
+            && ExtraPathing.isClearPath(
+                pose.getTranslation(),
+                lastCommittedFallback.getTranslation(),
+                dynamicObstacles,
+                robot_x,
+                robot_y,
+                this)) {
 
-      if (pathBlocked) {
-        return new RepulsorSample(
-            pose.getTranslation(), 0, 0, Radians.of(pose.getRotation().getRadians()));
+          setGoal(lastCommittedFallback);
+          goalListener.update(lastCommittedFallback);
+          pathBlocked = false;
+        }
+
+        if (pathBlocked && onBlocked.isPresent()) {
+          Pose2d newFallback =
+              onBlocked
+                  .get()
+                  .calculate(
+                      goal,
+                      pose,
+                      (Translation2d g) ->
+                          !suppressIsClearPath
+                              && ExtraPathing.isClearPath(
+                                  pose.getTranslation(),
+                                  g,
+                                  dynamicObstacles,
+                                  robot_x,
+                                  robot_y,
+                                  this),
+                      goalListener.isBouncing());
+
+          if (!ExtraPathing.isClearPath(
+              pose.getTranslation(),
+              newFallback.getTranslation(),
+              dynamicObstacles,
+              robot_x,
+              robot_y,
+              this)) {
+            return new RepulsorSample(
+                pose.getTranslation(), 0, 0, Radians.of(pose.getRotation().getRadians()));
+          }
+
+          lastCommittedFallback = newFallback;
+          fallbackStickUntilMillis = now() + 2000;
+          setGoal(newFallback);
+          goalListener.update(newFallback);
+        }
+
+        if (pathBlocked) {
+          return new RepulsorSample(
+              pose.getTranslation(), 0, 0, Radians.of(pose.getRotation().getRadians()));
+        }
+      } else {
+        firstTimeBlockedMillis = 0;
+        hasGivenUp = false;
+        lastCommittedFallback = null;
+        fallbackStickUntilMillis = 0;
       }
-    } else {
-      firstTimeBlockedMillis = 0;
-      hasGivenUp = false;
-      lastCommittedFallback = null;
-      fallbackStickUntilMillis = 0;
-    }
 
     updateArrows(dynamicObstacles);
 
@@ -581,6 +591,8 @@ public class FieldPlanner {
     currentErr = Optional.of(Meters.of(err.getNorm()));
 
     if (err.getNorm() < 0.04) {
+      // System.out.println("[CALCULATE] Done");
+
       if (fallback.isEmpty()) {
         return new RepulsorSample(
             pose.getTranslation(), 0, 0, Radians.of(goal.getRotation().getRadians()));
@@ -616,6 +628,8 @@ public class FieldPlanner {
       return new RepulsorSample(
           pose.getTranslation(), 0, 0, Radians.of(pose.getRotation().getRadians()));
     }
+
+    // System.out.println("[CALCULATE] Done");
 
     return new RepulsorSample(
         goal.getTranslation(),
