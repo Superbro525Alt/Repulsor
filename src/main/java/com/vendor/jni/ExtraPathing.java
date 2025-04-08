@@ -1,7 +1,6 @@
 package com.vendor.jni;
 
 import com.vendor.jni.FieldPlanner.Obstacle;
-import edu.wpi.first.math.controller.PIDController;
 import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.math.geometry.Translation2d;
@@ -20,46 +19,33 @@ public class ExtraPathing {
       Translation2d goal,
       List<? extends Obstacle> obstacles,
       double robotLengthMeters,
-      double robotWidthMeters,
-      FieldPlanner repulsor) {
+      double robotWidthMeters) {
 
     Pose2d pose = new Pose2d(start, new Rotation2d());
-    int maxSteps = 150;
     double stepTime = 0.02;
+    int maxSteps = 1000;
 
     for (int i = 0; i < maxSteps; i++) {
-      FieldPlanner.RepulsorSample sample =
-          repulsor.calculate(pose, obstacles, robotLengthMeters, robotWidthMeters);
+      Force goalForce = computeGoalForce(pose.getTranslation(), goal);
+      Force obstacleForce = computeObstacleForce(pose.getTranslation(), obstacles);
+      Force netForce = goalForce.plus(obstacleForce);
 
-      double vx =
-          sample.asChassisSpeeds(new PIDController(0, 0, 0), pose.getRotation()).vxMetersPerSecond;
-      double vy =
-          sample.asChassisSpeeds(new PIDController(0, 0, 0), pose.getRotation()).vyMetersPerSecond;
+      double maxSpeed = 2.0;
+      double netMag = netForce.getNorm();
+      Rotation2d netDir = netForce.getAngle();
+      double speed = Math.min(netMag, maxSpeed);
+      double dx = speed * netDir.getCos() * stepTime;
+      double dy = speed * netDir.getSin() * stepTime;
 
-      double dx = vx * stepTime;
-      double dy = vy * stepTime;
-
-      if (Math.hypot(dx, dy) < 1e-4) break;
-
-      Translation2d nextPos = pose.getTranslation().plus(new Translation2d(dx, dy));
-      pose = new Pose2d(nextPos, pose.getRotation());
-
-      Rotation2d heading = pose.getRotation();
-      double halfLength = robotLengthMeters / 2.0;
-      double halfWidth = robotWidthMeters / 2.0;
-
-      Translation2d[] corners = {
-        new Translation2d(-halfLength, -halfWidth),
-        new Translation2d(halfLength, -halfWidth),
-        new Translation2d(halfLength, halfWidth),
-        new Translation2d(-halfLength, halfWidth)
-      };
-
-      for (int j = 0; j < 4; j++) {
-        corners[j] = corners[j].rotateBy(heading).plus(nextPos);
+      if (Math.hypot(dx, dy) < 1e-4) {
+        return false;
       }
 
-      for (FieldPlanner.Obstacle obs : obstacles) {
+      Translation2d nextPos = pose.getTranslation().plus(new Translation2d(dx, dy));
+      Translation2d[] corners =
+          getRobotCorners(nextPos, pose.getRotation(), robotLengthMeters, robotWidthMeters);
+
+      for (Obstacle obs : obstacles) {
         if (obs.intersectsRectangle(corners)) {
           return false;
         }
@@ -68,9 +54,46 @@ public class ExtraPathing {
       if (nextPos.getDistance(goal) < 0.1) {
         return true;
       }
-    }
 
+      pose = new Pose2d(nextPos, pose.getRotation());
+    }
     return false;
+  }
+
+  private static Force computeGoalForce(Translation2d currentPos, Translation2d goal) {
+    Translation2d d = goal.minus(currentPos);
+    double dist = d.getNorm();
+    if (dist < 1e-9) {
+      return Force.kZero;
+    }
+    double mag = 1.2 / (0.0001 + dist * dist);
+    return new Force(mag, d.getAngle());
+  }
+
+  private static Force computeObstacleForce(
+      Translation2d currentPos, List<? extends Obstacle> obstacles) {
+    Force total = Force.kZero;
+    for (Obstacle obs : obstacles) {
+      total = total.plus(obs.getForceAtPosition(currentPos, Translation2d.kZero));
+    }
+    return total;
+  }
+
+  private static Translation2d[] getRobotCorners(
+      Translation2d center, Rotation2d heading, double length, double width) {
+
+    double halfLength = length / 2.0;
+    double halfWidth = width / 2.0;
+    Translation2d[] corners = {
+      new Translation2d(-halfLength, -halfWidth),
+      new Translation2d(halfLength, -halfWidth),
+      new Translation2d(halfLength, halfWidth),
+      new Translation2d(-halfLength, halfWidth)
+    };
+    for (int i = 0; i < corners.length; i++) {
+      corners[i] = corners[i].rotateBy(heading).plus(center);
+    }
+    return corners;
   }
 
   /** A fallback plan that computes a new target Pose2d to use when the original path is blocked. */
@@ -86,7 +109,8 @@ public class ExtraPathing {
         Pose2d originalTarget,
         Pose2d currentPose,
         Predicate<Translation2d> isClear,
-        boolean isBouncing);
+        boolean isBouncing,
+        List<Pose2d> avoid);
 
     /**
      * Calculates a new fallback target pose using a Translation2d as the original target.
@@ -99,12 +123,14 @@ public class ExtraPathing {
         Translation2d originalTarget,
         Pose2d currentPose,
         Predicate<Translation2d> func,
-        boolean isBouncing) {
+        boolean isBouncing,
+        List<Pose2d> avoid) {
       return calculate(
           new Pose2d(originalTarget.getX(), originalTarget.getY(), new Rotation2d()),
           currentPose,
           func,
-          isBouncing);
+          isBouncing,
+          avoid);
     }
   }
 
@@ -137,7 +163,8 @@ public class ExtraPathing {
         Pose2d originalTarget,
         Pose2d currentPose,
         Predicate<Translation2d> isClear,
-        boolean isBouncing) {
+        boolean isBouncing,
+        List<Pose2d> avoid) {
       Setpoints.SetpointsReefscape[] points = Setpoints.SetpointsReefscape.values();
 
       int startIdx = -1;
@@ -158,7 +185,9 @@ public class ExtraPathing {
         int idx = offset % points.length;
         if (points[idx].type() == Setpoints.SetpointType.kScore) {
           Pose2d pose = points[idx].getPose(m_robot_x, m_robot_y, m_coral_offset, m_algae_offset);
-          if (isClear.test(pose.getTranslation())) {
+          // System.out.println(pose.toString());
+          // System.out.println(isClear.test(pose.getTranslation()));
+          if (isClear.test(pose.getTranslation()) && !avoid.contains(pose)) {
             lastPoses.add(pose);
             if (lastPoses.size() > 20) {
               lastPoses.poll();

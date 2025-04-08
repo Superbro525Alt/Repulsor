@@ -339,6 +339,7 @@ public class FieldPlanner {
   public boolean suppressIsClearPath = false;
   private int stuckStepCount = 0;
   private static final int MAX_STUCK_STEPS = 40;
+  private int total_calculates = 0;
 
   public FieldPlanner() {
     fixedObstacles.addAll(FIELD_OBSTACLES);
@@ -370,24 +371,25 @@ public class FieldPlanner {
 
   // A grid of arrows drawn in AScope
   public void updateArrows(List<? extends Obstacle> dynamicObstacles) {
-    for (int x = 0; x <= ARROWS_X; x++) {
-      for (int y = 0; y <= ARROWS_Y; y++) {
-        var translation =
-            new Translation2d(
-                x * Constants.FIELD_LENGTH / ARROWS_X, y * Constants.FIELD_WIDTH / ARROWS_Y);
-        var force = Force.kZero;
-        force = force.plus(getObstacleForce(translation, goal.getTranslation(), dynamicObstacles));
-        force = force.plus(getWallForce(translation, goal.getTranslation()));
-        force = force.plus(getGoalForce(translation, goal.getTranslation()));
-        if (force.getNorm() < 1e-6) {
-          arrows.set(x * (ARROWS_Y + 1) + y, arrowBackstage);
-        } else {
-          var rotation = force.getAngle();
-
-          arrows.set(x * (ARROWS_Y + 1) + y, new Pose2d(translation, rotation));
-        }
-      }
-    }
+    // for (int x = 0; x <= ARROWS_X; x++) {
+    //   for (int y = 0; y <= ARROWS_Y; y++) {
+    //     var translation =
+    //         new Translation2d(
+    //             x * Constants.FIELD_LENGTH / ARROWS_X, y * Constants.FIELD_WIDTH / ARROWS_Y);
+    //     var force = Force.kZero;
+    //     force = force.plus(getObstacleForce(translation, goal.getTranslation(),
+    // dynamicObstacles));
+    //     force = force.plus(getWallForce(translation, goal.getTranslation()));
+    //     force = force.plus(getGoalForce(translation, goal.getTranslation()));
+    //     if (force.getNorm() < 1e-6) {
+    //       arrows.set(x * (ARROWS_Y + 1) + y, arrowBackstage);
+    //     } else {
+    //       var rotation = force.getAngle();
+    //
+    //       arrows.set(x * (ARROWS_Y + 1) + y, new Pose2d(translation, rotation));
+    //     }
+    //   }
+    // }
   }
 
   public ArrayList<Pose2d> getArrows() {
@@ -492,150 +494,110 @@ public class FieldPlanner {
   }
 
   public RepulsorSample calculate(
-      Pose2d pose,
+      Pose2d currentPose,
       List<? extends Obstacle> dynamicObstacles,
-      double robot_x,
-      double robot_y
-      ) {
-    // System.out.println("[CALCULATE] Begin");
+      double robotLength,
+      double robotWidth,
+      boolean checkPathClear,
+      List<Pose2d> avoid) {
 
-      boolean pathBlocked =
-          !suppressIsClearPath
-              && !ExtraPathing.isClearPath(
-                  pose.getTranslation(),
-                  goal.getTranslation(),
-                  dynamicObstacles,
-                  robot_x,
-                  robot_y,
-                  this);
-
-      if (pathBlocked) {
-        long currentTime = now();
+    if (checkPathClear && !suppressIsClearPath) {
+      boolean blocked =
+          !ExtraPathing.isClearPath(
+              currentPose.getTranslation(),
+              goal.getTranslation(),
+              dynamicObstacles,
+              robotLength,
+              robotWidth);
+      if (blocked) {
+        long now = System.currentTimeMillis();
         if (firstTimeBlockedMillis == 0) {
-          firstTimeBlockedMillis = currentTime;
+          firstTimeBlockedMillis = now;
         }
-
-        if (!hasGivenUp && currentTime - firstTimeBlockedMillis > 5000) {
+        if (!hasGivenUp && (now - firstTimeBlockedMillis > 3000)) {
           hasGivenUp = true;
+          updateArrows(dynamicObstacles);
           return new RepulsorSample(
-              pose.getTranslation(), 0, 0, Radians.of(pose.getRotation().getRadians()));
+              currentPose.getTranslation(),
+              0,
+              0,
+              Radians.of(currentPose.getRotation().getRadians()));
         }
-
-        if (lastCommittedFallback != null
-            && now() < fallbackStickUntilMillis
-            && !suppressIsClearPath
-            && ExtraPathing.isClearPath(
-                pose.getTranslation(),
-                lastCommittedFallback.getTranslation(),
-                dynamicObstacles,
-                robot_x,
-                robot_y,
-                this)) {
-
-          setGoal(lastCommittedFallback);
-          goalListener.update(lastCommittedFallback);
-          pathBlocked = false;
-        }
-
-        if (pathBlocked && onBlocked.isPresent()) {
-          Pose2d newFallback =
+        if (onBlocked.isPresent()) {
+          Pose2d fallbackGoal =
               onBlocked
                   .get()
                   .calculate(
                       goal,
-                      pose,
-                      (Translation2d g) ->
-                          !suppressIsClearPath
-                              && ExtraPathing.isClearPath(
-                                  pose.getTranslation(),
-                                  g,
-                                  dynamicObstacles,
-                                  robot_x,
-                                  robot_y,
-                                  this),
-                      goalListener.isBouncing());
-
+                      currentPose,
+                      (Translation2d candidate) ->
+                          ExtraPathing.isClearPath(
+                              currentPose.getTranslation(),
+                              candidate,
+                              dynamicObstacles,
+                              robotLength,
+                              robotWidth),
+                      goalListener.isBouncing(),
+                      avoid);
           if (!ExtraPathing.isClearPath(
-              pose.getTranslation(),
-              newFallback.getTranslation(),
+              currentPose.getTranslation(),
+              fallbackGoal.getTranslation(),
               dynamicObstacles,
-              robot_x,
-              robot_y,
-              this)) {
+              robotLength,
+              robotWidth)) {
+            updateArrows(dynamicObstacles);
             return new RepulsorSample(
-                pose.getTranslation(), 0, 0, Radians.of(pose.getRotation().getRadians()));
+                currentPose.getTranslation(),
+                0,
+                0,
+                Radians.of(currentPose.getRotation().getRadians()));
           }
-
-          lastCommittedFallback = newFallback;
-          fallbackStickUntilMillis = now() + 2000;
-          setGoal(newFallback);
-          goalListener.update(newFallback);
+          lastCommittedFallback = fallbackGoal;
+          fallbackStickUntilMillis = now + 2000;
+          setGoal(fallbackGoal);
+          goalListener.update(fallbackGoal);
         }
-
-        if (pathBlocked) {
-          return new RepulsorSample(
-              pose.getTranslation(), 0, 0, Radians.of(pose.getRotation().getRadians()));
-        }
+        // updateArrows(dynamicObstacles);
+        // return new RepulsorSample(
+        //     currentPose.getTranslation(), 0, 0,
+        // Radians.of(currentPose.getRotation().getRadians()));
       } else {
         firstTimeBlockedMillis = 0;
         hasGivenUp = false;
-        lastCommittedFallback = null;
-        fallbackStickUntilMillis = 0;
       }
+    }
+
+    Translation2d currentPos = currentPose.getTranslation();
+    double distToGoal = currentPos.getDistance(goal.getTranslation());
+    currentErr = Optional.of(Meters.of(distToGoal));
+    double tolerance = 0.04;
+    if (distToGoal < tolerance) {
+      if (fallback.isPresent() && !fallback.get().within(goal.getTranslation().minus(currentPos))) {
+        ChassisSpeeds fbSpeeds = fallback.get().calculate(currentPos, goal.getTranslation());
+        updateArrows(dynamicObstacles);
+        return new RepulsorSample(
+            currentPos,
+            fbSpeeds.vxMetersPerSecond,
+            fbSpeeds.vyMetersPerSecond,
+            Radians.of(goal.getRotation().getRadians()));
+      } else {
+        return new RepulsorSample(currentPos, 0, 0, Radians.of(goal.getRotation().getRadians()));
+      }
+    }
 
     updateArrows(dynamicObstacles);
-
-    var curTrans = pose.getTranslation();
-    var err = curTrans.minus(goal.getTranslation());
-
-    currentErr = Optional.of(Meters.of(err.getNorm()));
-
-    if (err.getNorm() < 0.04) {
-      // System.out.println("[CALCULATE] Done");
-
-      if (fallback.isEmpty()) {
-        return new RepulsorSample(
-            pose.getTranslation(), 0, 0, Radians.of(goal.getRotation().getRadians()));
-      }
-
-      if (fallback.get().within(err)) {
-        return new RepulsorSample(
-            pose.getTranslation(), 0, 0, Radians.of(goal.getRotation().getRadians()));
-      }
-
-      return new RepulsorSample(
-          pose.getTranslation(),
-          fallback.get().calculate(pose.getTranslation(), goal.getTranslation()),
-          Radians.of(goal.getRotation().getRadians()));
-    }
-
-    var obstacleForce =
-        getObstacleForce(curTrans, goal.getTranslation(), dynamicObstacles)
-            .plus(getWallForce(curTrans, goal.getTranslation()));
-    var netForce = getGoalForce(curTrans, goal.getTranslation()).plus(obstacleForce);
-    var dist = err.getNorm();
-    double stepSize_m = Math.min(5.14, Math.sqrt(6 * dist)) * 0.02;
-    var step = new Translation2d(stepSize_m, netForce.getAngle());
-
-    if (step.getNorm() < 1e-3) {
-      stuckStepCount++;
-    } else {
-      stuckStepCount = 0;
-    }
-
-    if (stuckStepCount >= MAX_STUCK_STEPS) {
-      System.out.println("[Repulsor] Stuck! Aborting after " + stuckStepCount + " tiny steps.");
-      return new RepulsorSample(
-          pose.getTranslation(), 0, 0, Radians.of(pose.getRotation().getRadians()));
-    }
-
-    // System.out.println("[CALCULATE] Done");
-
-    return new RepulsorSample(
-        goal.getTranslation(),
-        step.getX() / 0.02,
-        step.getY() / 0.02,
-        Radians.of(goal.getRotation().getRadians()));
+    Force goalForce = getGoalForce(currentPos, goal.getTranslation());
+    Force obstacleForce = getObstacleForce(currentPos, goal.getTranslation(), dynamicObstacles);
+    Force wallForce = getWallForce(currentPos, goal.getTranslation());
+    Force netForce = goalForce.plus(obstacleForce).plus(wallForce);
+    double maxSpeed = 2.0;
+    double netMag = netForce.getNorm();
+    Rotation2d netDir = netForce.getAngle();
+    double scaledSpeed = Math.min(netMag, maxSpeed);
+    double vx = scaledSpeed * netDir.getCos();
+    double vy = scaledSpeed * netDir.getSin();
+    double desiredHeading = goal.getRotation().getRadians();
+    return new RepulsorSample(currentPos, vx, vy, Radians.of(desiredHeading));
   }
 
   private long now() {
